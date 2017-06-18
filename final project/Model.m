@@ -33,6 +33,9 @@ classdef Model < handle
     isStop
     isPause
     
+    % Display
+    disp_simulation_time_left
+    disp_count_handover
   end
   
   properties( Constant )
@@ -111,6 +114,13 @@ classdef Model < handle
       obj.MD_tmp = obj.MD;
       obj.count_handover = 0;
       
+      obj.disp_simulation_time_left = annotation('textbox', [0.59 0.66 0.15 0.02],...
+          'FontSize', 16,...
+          'EdgeColor', 'none');
+      obj.disp_count_handover = annotation('textbox', [0.89 0.66 0.15 0.02],...
+          'FontSize', 16,...
+          'EdgeColor', 'none');
+      
       obj.render()
       pause(1)
       
@@ -178,6 +188,7 @@ classdef Model < handle
               if obj.MD_tmp( j ).handover_timeLeft == 0
                 obj.MD_tmp( j ).id_BS = maxBS;
                 obj.MD_tmp( j ).handover_timeLeft = 5;
+                obj.count_handover = obj.count_handover + 1;
               end
             end
           end
@@ -185,7 +196,7 @@ classdef Model < handle
           for j = 1:obj.num_MD
             [ maxSINR, maxBS ] = max( sinr( :, j ) );
             if maxBS ~= obj.MD_tmp( j ).id_BS
-              if maxSINR > 1
+              if maxSINR > -22
                 obj.MD_tmp( j ).id_BS = maxBS;
                 obj.count_handover = obj.count_handover + 1;
               end
@@ -208,7 +219,7 @@ classdef Model < handle
         end
         
         obj.render()
-        pause( 1 )
+        pause( 0.5 )
         
       end
       
@@ -237,6 +248,10 @@ classdef Model < handle
     end
     
     function obj = render( obj )
+      uistack(obj.disp_simulation_time_left,'top');
+      uistack(obj.disp_count_handover,'top');
+      set(obj.disp_simulation_time_left,'String',int2str(obj.simulation_time_left));
+      set(obj.disp_count_handover,'String',int2str(obj.count_handover));
       plot( [ obj.MD_tmp( : ).x ], [ obj.MD_tmp( : ).y ], 'rx' );
       hold on;
       axis( [ -1300 1300 -1300 1300 ] );
