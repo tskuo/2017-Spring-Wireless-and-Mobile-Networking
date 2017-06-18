@@ -38,6 +38,7 @@ classdef Model < handle
     % Display
     disp_simulation_time_left
     disp_count_handover
+    disp_count_disconnection
     
   end
   
@@ -119,10 +120,13 @@ classdef Model < handle
       obj.count_handover = 0;
       obj.count_disconnection = 0;
       
-      obj.disp_simulation_time_left = annotation('textbox', [0.59 0.66 0.15 0.02],...
+      obj.disp_simulation_time_left = annotation('textbox', [0.53 0.66 0.15 0.02],...
           'FontSize', 16,...
           'EdgeColor', 'none');
-      obj.disp_count_handover = annotation('textbox', [0.89 0.66 0.15 0.02],...
+      obj.disp_count_handover = annotation('textbox', [0.715 0.66 0.15 0.02],...
+          'FontSize', 16,...
+          'EdgeColor', 'none');
+      obj.disp_count_disconnection = annotation('textbox', [0.89 0.66 0.15 0.02],...
           'FontSize', 16,...
           'EdgeColor', 'none');
       
@@ -279,10 +283,11 @@ classdef Model < handle
     end
     
     function obj = render( obj )
-      uistack(obj.disp_simulation_time_left,'top');
-      uistack(obj.disp_count_handover,'top');
+      %uistack(obj.disp_simulation_time_left,'top');
+      %uistack(obj.disp_count_handover,'top');
       set(obj.disp_simulation_time_left,'String',int2str(obj.simulation_time_left));
       set(obj.disp_count_handover,'String',int2str(obj.count_handover));
+      set(obj.disp_count_disconnection,'String',int2str(obj.count_disconnection));
       plot( [ obj.MD_tmp( : ).x ], [ obj.MD_tmp( : ).y ], 'rx' );
       hold on;
       axis( [ -1300 1300 -1300 1300 ] );
