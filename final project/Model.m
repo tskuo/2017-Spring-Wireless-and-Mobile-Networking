@@ -30,12 +30,15 @@ classdef Model < handle
     
     % Model Parameters
     count_handover
+    count_disconnection
     isStop
     isPause
+    noise
     
     % Display
     disp_simulation_time_left
     disp_count_handover
+    
   end
   
   properties( Constant )
@@ -89,6 +92,7 @@ classdef Model < handle
       % Model Parameters
       obj.isStop                = true;
       obj.isPause               = false;
+      obj.noise                 = thermal_noise_power( obj.temperature, obj.bandwidth );
       
       % Initial Plot
       obj.v_x = obj.R * cos( -( 0:6 ) * pi / 3 ) + obj.x_BS.';
@@ -113,6 +117,7 @@ classdef Model < handle
       obj.simulation_time_left = obj.simulation_time;
       obj.MD_tmp = obj.MD;
       obj.count_handover = 0;
+      obj.count_disconnection = 0;
       
       obj.disp_simulation_time_left = annotation('textbox', [0.59 0.66 0.15 0.02],...
           'FontSize', 16,...
@@ -122,7 +127,73 @@ classdef Model < handle
           'EdgeColor', 'none');
       
       obj.render()
-      pause(1)
+      
+    end
+    
+    function obj = check( obj )
+      % calculate SINR
+      distance = ( ( obj.x_BS.' - [ obj.MD_tmp.x ] ) .^ 2 + ( obj.y_BS.' - [ obj.MD_tmp.y ] ) .^ 2 ) .^ 0.5;
+
+      if obj.path_loss_model == obj.TWORAY
+        received_power = watt_2_dB( two_ray_ground_model( obj.height_MD, obj.height_BS, distance ) );
+      elseif obj.path_loss_model == obj.SMOOTH
+        received_power = watt_2_dB( smooth_transition_model( distance ) );
+      else
+        received_power = watt_2_dB( cost_231_model( obj.height_BS, obj.height_MD, distance ) );
+      end
+
+      if obj.link == obj.UP
+        received_power = received_power + dBm_2_dB( obj.power_MD ) + obj.gain_T + obj.gain_R;
+        received_power_sum = sum( dB_2_watt( received_power ), 2 );
+        interference = received_power_sum - dB_2_watt( received_power );
+      else
+        received_power = received_power + dBm_2_dB( obj.power_BS ) + obj.gain_T + obj.gain_R;
+        received_power_sum = sum( dB_2_watt( received_power ), 1 );
+        interference = received_power_sum - dB_2_watt( received_power );
+      end
+      sinr = SINR( received_power, interference, obj.noise );
+
+      % check connection
+      for j = 1:obj.num_MD
+        if sinr( obj.MD_tmp( j ).id_BS, j ) < -60
+          obj.count_disconnection = obj.count_disconnection + 1;
+          [ maxSINR, maxBS ] = max( sinr( :, j ) );
+          obj.MD_tmp( j ).id_BS = maxBS;
+        end
+      end
+
+      % update id_BS if necessary
+      if obj.handover_policy == obj.EAGER
+        for j = 1:obj.num_MD
+          [ maxSINR, maxBS ] = max( sinr( :, j ) );
+          if maxBS ~= obj.MD_tmp( j ).id_BS
+            obj.MD_tmp( j ).id_BS = maxBS;
+            obj.count_handover = obj.count_handover + 1;
+          end
+        end
+      elseif obj.handover_policy == obj.LAZY
+        for j = 1:obj.num_MD
+          [ maxSINR, maxBS ] = max( sinr( :, j ) );
+          if maxBS ~= obj.MD_tmp( j ).id_BS
+            obj.MD_tmp( j ).handover_timeLeft = obj.MD_tmp( j ).handover_timeLeft - 1;
+            if obj.MD_tmp( j ).handover_timeLeft == 0
+              obj.MD_tmp( j ).id_BS = maxBS;
+              obj.MD_tmp( j ).handover_timeLeft = 5;
+              obj.count_handover = obj.count_handover + 1;
+            end
+          end
+        end
+      else
+        for j = 1:obj.num_MD
+          [ maxSINR, maxBS ] = max( sinr( :, j ) );
+          if maxBS ~= obj.MD_tmp( j ).id_BS
+            if maxSINR > -55
+              obj.MD_tmp( j ).id_BS = maxBS;
+              obj.count_handover = obj.count_handover + 1;
+            end
+          end
+        end
+      end
       
     end
     
@@ -131,13 +202,13 @@ classdef Model < handle
       if obj.isStop == true
         obj.MD_tmp = obj.MD;
         obj.simulation_time_left = obj.simulation_time;
+        obj.check();
         obj.count_handover = 0;
+        obj.count_disconnection = 0;
         obj.isStop = false;
         obj.render();
       end
       obj.isPause = false;
-      
-      noise = thermal_noise_power( obj.temperature, obj.bandwidth );
       
       while obj.simulation_time_left > 0
         
@@ -149,60 +220,7 @@ classdef Model < handle
         
         obj.simulation_time_left = obj.simulation_time_left - 1;
 
-        % compute BSs' SINR
-        distance = ( ( obj.x_BS.' - [ obj.MD_tmp.x ] ) .^ 2 + ( obj.y_BS.' - [ obj.MD_tmp.y ] ) .^ 2 ) .^ 0.5;
-        
-        if obj.path_loss_model == obj.TWORAY
-          received_power = watt_2_dB( two_ray_ground_model( obj.height_MD, obj.height_BS, distance ) );
-        elseif obj.path_loss_model == obj.SMOOTH
-          received_power = watt_2_dB( smooth_transition_model( distance ) );
-        else
-          received_power = watt_2_dB( cost_231_model( obj.height_BS, obj.height_MD, distance ) );
-        end
-        
-        if obj.link == obj.UP
-          received_power = received_power + dBm_2_dB( obj.power_MD ) + obj.gain_T + obj.gain_R;
-          received_power_sum = sum( dB_2_watt( received_power ), 2 );
-          interference = received_power_sum - dB_2_watt( received_power );
-        else
-          received_power = received_power + dBm_2_dB( obj.power_BS ) + obj.gain_T + obj.gain_R;
-          received_power_sum = sum( dB_2_watt( received_power ), 1 );
-          interference = received_power_sum - dB_2_watt( received_power );
-        end
-        sinr = SINR( received_power, interference, noise );
-
-        % update id_BS if necessary
-        if obj.handover_policy == obj.EAGER
-          for j = 1:obj.num_MD
-            [ maxSINR, maxBS ] = max( sinr( :, j ) );
-            if maxBS ~= obj.MD_tmp( j ).id_BS
-              obj.MD_tmp( j ).id_BS = maxBS;
-              obj.count_handover = obj.count_handover + 1;
-            end
-          end
-        elseif obj.handover_policy == obj.LAZY
-          for j = 1:obj.num_MD
-            [ maxSINR, maxBS ] = max( sinr( :, j ) );
-            if maxBS ~= obj.MD_tmp( j ).id_BS
-              obj.MD_tmp( j ).handover_timeLeft = obj.MD_tmp( j ).handover_timeLeft - 1;
-              if obj.MD_tmp( j ).handover_timeLeft == 0
-                obj.MD_tmp( j ).id_BS = maxBS;
-                obj.MD_tmp( j ).handover_timeLeft = 5;
-                obj.count_handover = obj.count_handover + 1;
-              end
-            end
-          end
-        else
-          for j = 1:obj.num_MD
-            [ maxSINR, maxBS ] = max( sinr( :, j ) );
-            if maxBS ~= obj.MD_tmp( j ).id_BS
-              if maxSINR > -22
-                obj.MD_tmp( j ).id_BS = maxBS;
-                obj.count_handover = obj.count_handover + 1;
-              end
-            end
-          end
-        end
+        obj.check();
 
         % mobile devices move
         for j = 1:obj.num_MD
@@ -219,8 +237,18 @@ classdef Model < handle
         end
         
         obj.render()
-        pause( 0.5 )
+        pause( 0.1 )
         
+      end
+      
+      if obj.isPause == false
+        if obj.isStop == false
+          %obj.MD_tmp = obj.MD;
+          %obj.simulation_time_left = obj.simulation_time;
+          %obj.check();
+          %obj.count_handover = 0;
+          %obj.count_disconnection = 0;
+        end
       end
       
     end
@@ -241,7 +269,10 @@ classdef Model < handle
       
       obj.simulation_time_left = obj.simulation_time;
       obj.MD_tmp = obj.MD;
+      obj.check();
       obj.count_handover = 0;
+      obj.count_disconnection = 0;
+      obj.noise = thermal_noise_power( obj.temperature, obj.bandwidth );
       
       obj.render()
       
