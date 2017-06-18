@@ -25,7 +25,7 @@ classdef Model < handle
     v_y
     
     % Mobile Devices
-    MD = MobileDevice( 0, 0, 0 );
+    MD = MobileDevice( 0, 0, 0 )
     MD_tmp = MobileDevice( 0, 0, 0 )
     
     % Model Parameters
@@ -47,6 +47,7 @@ classdef Model < handle
     EAGER                = 1;
     LAZY                 = 2;
     THRESHOLD            = 3;
+    HARD_THRESHOLD       = 4;
     
     % Path-loss Model
     TWORAY               = 1;
@@ -187,11 +188,21 @@ classdef Model < handle
             end
           end
         end
-      else
+      elseif obj.handover_policy == obj.THRESHOLD
         for j = 1:obj.num_MD
           [ maxSINR, maxBS ] = max( sinr( :, j ) );
           if maxBS ~= obj.MD_tmp( j ).id_BS
             if maxSINR > -55
+              obj.MD_tmp( j ).id_BS = maxBS;
+              obj.count_handover = obj.count_handover + 1;
+            end
+          end
+        end
+      else
+        for j = 1:obj.num_MD
+          [ maxSINR, maxBS ] = max( sinr( :, j ) );
+          if maxBS ~= obj.MD_tmp( j ).id_BS
+            if maxSINR > sinr( obj.MD_tmp( j ).id_BS, j ) + 5
               obj.MD_tmp( j ).id_BS = maxBS;
               obj.count_handover = obj.count_handover + 1;
             end
@@ -366,6 +377,8 @@ classdef Model < handle
           obj.handover_policy = obj.LAZY;
         case 3
           obj.handover_policy = obj.THRESHOLD;
+        case 4
+          obj.handover_policy = obj.HARD_THRESHOLD;
       end
     end
     
