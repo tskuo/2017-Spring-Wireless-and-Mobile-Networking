@@ -15,7 +15,8 @@ classdef Model < handle
     simulation_time
     simulation_time_left
     handover_policy
-    pass_loss_model
+    path_loss_model
+    link
     
     % Positions of BSs
     boundary_x
@@ -36,14 +37,18 @@ classdef Model < handle
   
   properties( Constant )
     % Handover Policy
-    EAGER                = 'Instantaneous';
-    LAZY                 = 'For a Period';
-    THRESHOLD            = 'Threshold: SINR';
+    EAGER                = 1;
+    LAZY                 = 2;
+    THRESHOLD            = 3;
     
     % Path-loss Model
-    TWORAY               = 'Two-ray model';
-    SMOOTH               = 'Smooth Transition model';
-    COST231              = 'COST-231 model';
+    TWORAY               = 1;
+    SMOOTH               = 2;
+    COST231              = 3;
+    
+    % Link Direction
+    UP                   = 1;
+    DOWN                 = 2;
     
     % Parameters
     ISR                  = 500;
@@ -75,7 +80,8 @@ classdef Model < handle
       obj.num_BS               = 19;
       obj.simulation_time      = 900;
       obj.handover_policy      = obj.EAGER;
-      obj.pass_loss_model      = obj.TWORAY;
+      obj.path_loss_model      = obj.TWORAY;
+      obj.link                 = obj.UP;
 
       % Model Parameters
       obj.isStop                = true;
@@ -110,7 +116,7 @@ classdef Model < handle
       
     end
     
-    function obj = start( obj, ~, ~ )
+    function obj = start( obj )
       
       if obj.isStop == true
         obj.MD_tmp = obj.MD;
@@ -135,11 +141,24 @@ classdef Model < handle
 
         % compute BSs' SINR
         distance = ( ( obj.x_BS.' - [ obj.MD_tmp.x ] ) .^ 2 + ( obj.y_BS.' - [ obj.MD_tmp.y ] ) .^ 2 ) .^ 0.5;
-        received_power = dBm_2_dB( obj.power_MD ) ...
-                         + watt_2_dB( two_ray_ground_model( obj.height_BS, obj.height_MD, distance ) ) ...
-                         + obj.gain_T + obj.gain_R;
-        received_power_sum = sum( dB_2_watt( received_power ), 2 );
-        interference = received_power_sum( [ obj.MD_tmp.id_BS ] ).' - dB_2_watt( received_power );
+        
+        if obj.path_loss_model == obj.TWORAY
+          received_power = watt_2_dB( two_ray_ground_model( obj.height_MD, obj.height_BS, distance ) );
+        elseif obj.path_loss_model == obj.SMOOTH
+          received_power = watt_2_dB( smooth_transition_model( distance ) );
+        else
+          received_power = watt_2_dB( cost_231_model( obj.height_BS, obj.height_MD, distance ) );
+        end
+        
+        if obj.link == obj.UP
+          received_power = received_power + dBm_2_dB( obj.power_MD ) + obj.gain_T + obj.gain_R;
+          received_power_sum = sum( dB_2_watt( received_power ), 2 );
+          interference = received_power_sum - dB_2_watt( received_power );
+        else
+          received_power = received_power + dBm_2_dB( obj.power_BS ) + obj.gain_T + obj.gain_R;
+          received_power_sum = sum( dB_2_watt( received_power ), 1 );
+          interference = received_power_sum - dB_2_watt( received_power );
+        end
         sinr = SINR( received_power, interference, noise );
 
         % update id_BS if necessary
@@ -195,10 +214,10 @@ classdef Model < handle
       
     end
     
-    function obj = initialize( obj, ~, ~ )
+    function obj = initialize( obj )
 
       count = 1;
-      obj.MD = [];
+      obj.MD = MobileDevice( 0, 0, 0 );
       while count <= obj.num_MD
         id_BS = randi( obj.num_BS );
         x_temp = obj.R - 2 * obj.R * rand + obj.x_BS( id_BS );
@@ -217,7 +236,7 @@ classdef Model < handle
       
     end
     
-    function obj = render( obj, ~, ~ )
+    function obj = render( obj )
       plot( [ obj.MD_tmp( : ).x ], [ obj.MD_tmp( : ).y ], 'rx' );
       hold on;
       axis( [ -1300 1300 -1300 1300 ] );
@@ -230,12 +249,84 @@ classdef Model < handle
       hold off;
     end
     
-    function obj = pause( obj, ~, ~ )
+    function obj = pause( obj )
       obj.isPause = true;
     end
       
-    function obj = stop( obj, ~, ~ )
+    function obj = stop( obj )
       obj.isStop = true;
+    end
+    
+    
+    function obj = setTemperature( obj, newTemperature )
+      obj.temperature = newTemperature + 273.15;
+    end
+    
+    function obj = setBandwidth( obj, newBandwidth )
+      obj.bandwidth = newBandwidth * 10^6;
+    end
+     
+    function obj = setPowerBS( obj, newPowerBS )
+      obj.power_BS = newPowerBS;
+    end
+    
+    function obj = setPowerMD( obj, newPowerMD )
+      obj.power_MD = newPowerMD;
+    end
+    
+    function obj = setGainT( obj, newGainT )
+      obj.gain_T = newGainT;
+    end
+    
+    function obj = setGainR( obj, newGainR )
+      obj.gain_R = newGainR;
+    end
+
+    function obj = setHeightBS( obj, newHeightBS )
+      obj.height_BS = newHeightBS;
+    end
+
+    function obj = setHeightMD( obj, newHeightMD )
+      obj.height_MD = newHeightMD;
+    end
+    
+    function obj = setNumMD( obj, newNumMD )
+      obj.num_MD = newNumMD;
+    end
+    
+    function obj = setSimulationTime( obj, newSimulationTime )
+      obj.simulation_time = newSimulationTime;
+    end
+
+    function obj = setLink( obj, newLinkIndex )
+      if newLinkIndex == 1
+        obj.link = obj.UP;
+      elseif newLinkIndex == 2
+        obj.link = obj.DOWN;
+      end
+      disp( obj.link );
+    end
+    
+    function obj = setHandoverPolicy( obj, newPolicyIndex )
+      switch(newPolicyIndex)
+        case 1
+          obj.handover_policy = obj.EAGER;
+        case 2
+          obj.handover_policy = obj.LAZY;
+        case 3
+          obj.handover_policy = obj.THRESHOLD;
+      end
+    end
+    
+    function obj = setPathLossModel( obj, newModelIndex )
+      switch(newModelIndex)
+        case 1
+          obj.path_loss_model = obj.TWORAY;
+        case 2
+          obj.path_loss_model = obj.SMOOTH;
+        case 3
+          obj.path_loss_model = obj.COST231;
+      end
     end
     
   end
