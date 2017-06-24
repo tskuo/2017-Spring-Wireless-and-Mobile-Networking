@@ -94,7 +94,7 @@ classdef Model < handle
       obj.height_MD            = 1.5;
       obj.num_MD               = 100;
       obj.num_BS               = 19;
-      obj.simulation_time      = 900;
+      obj.simulation_time      = 300;
       obj.handover_policy      = obj.EAGER;
       obj.path_loss_model      = obj.TWORAY;
       obj.link                 = obj.UP;
