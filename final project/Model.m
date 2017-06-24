@@ -17,6 +17,11 @@ classdef Model < handle
     handover_policy
     path_loss_model
     link
+    speed
+    measureInterval
+    s_fading
+    sigma_fading
+    sigma_shadowing
     
     % Positions of BSs
     boundary_x
@@ -25,8 +30,8 @@ classdef Model < handle
     v_y
     
     % Mobile Devices
-    MD = MobileDevice( 0, 0, 0 )
-    MD_tmp = MobileDevice( 0, 0, 0 )
+    MD = MobileDevice( 0, 0, 0, 0 )
+    MD_tmp = MobileDevice( 0, 0, 0, 0 )
     
     % Model Parameters
     count_handover
@@ -34,6 +39,9 @@ classdef Model < handle
     isStop
     isPause
     noise
+    timer
+    RicianDistribution
+    fadingOrNot
     
     % Display
     disp_simulation_time_left
@@ -90,11 +98,18 @@ classdef Model < handle
       obj.handover_policy      = obj.EAGER;
       obj.path_loss_model      = obj.TWORAY;
       obj.link                 = obj.UP;
+      obj.speed                = 4;
+      obj.measureInterval      = 1;
+      obj.s_fading             = 0;
+      obj.sigma_fading         = 0;
+      obj.sigma_shadowing      = 0;
 
       % Model Parameters
       obj.isStop                = true;
       obj.isPause               = false;
       obj.noise                 = thermal_noise_power( obj.temperature, obj.bandwidth );
+      obj.RicianDistribution    = makedist( 'Rician', 's', 0, 'sigma', 1 );
+      obj.fadingOrNot           = false;
       
       % Initial Plot
       obj.v_x = obj.R * cos( -( 0:6 ) * pi / 3 ) + obj.x_BS.';
@@ -111,7 +126,7 @@ classdef Model < handle
         x_temp = obj.R - 2 * obj.R * rand + obj.x_BS( id_BS );
         y_temp = obj.R - 2 * obj.R * rand + obj.y_BS( id_BS );
         if inpolygon( x_temp, y_temp, obj.v_x( id_BS, : ), obj.v_y( id_BS, : ) ) == 1
-          obj.MD( count ) = MobileDevice( id_BS, x_temp, y_temp );
+          obj.MD( count ) = MobileDevice( id_BS, x_temp, y_temp, obj.speed );
           count = count + 1;
         end
       end
@@ -138,7 +153,8 @@ classdef Model < handle
     function obj = check( obj )
       % calculate SINR
       distance = ( ( obj.x_BS.' - [ obj.MD_tmp.x ] ) .^ 2 + ( obj.y_BS.' - [ obj.MD_tmp.y ] ) .^ 2 ) .^ 0.5;
-
+      received_power = normrnd( 0, obj.sigma_shadowing ) + obj.fadingOrNot * watt_2_dB( random( obj.RicianDistribution ) ^ 2 );
+      
       if obj.path_loss_model == obj.TWORAY
         received_power = watt_2_dB( two_ray_ground_model( obj.height_MD, obj.height_BS, distance ) );
       elseif obj.path_loss_model == obj.SMOOTH
@@ -221,6 +237,7 @@ classdef Model < handle
         obj.count_handover = 0;
         obj.count_disconnection = 0;
         obj.isStop = false;
+        obj.timer = 0;
         obj.render();
       end
       obj.isPause = false;
@@ -235,7 +252,11 @@ classdef Model < handle
         
         obj.simulation_time_left = obj.simulation_time_left - 1;
 
-        obj.check();
+        obj.timer = obj.timer + 1;
+        if obj.timer == obj.measureInterval
+          obj.timer = 0;
+          obj.check();
+        end
 
         % mobile devices move
         for j = 1:obj.num_MD
@@ -258,11 +279,11 @@ classdef Model < handle
       
       if obj.isPause == false
         if obj.isStop == false
-          %obj.MD_tmp = obj.MD;
-          %obj.simulation_time_left = obj.simulation_time;
-          %obj.check();
-          %obj.count_handover = 0;
-          %obj.count_disconnection = 0;
+          obj.MD_tmp = obj.MD;
+          obj.simulation_time_left = obj.simulation_time;
+          obj.check();
+          obj.count_handover = 0;
+          obj.count_disconnection = 0;
         end
       end
       
@@ -271,13 +292,13 @@ classdef Model < handle
     function obj = initialize( obj )
 
       count = 1;
-      obj.MD = MobileDevice( 0, 0, 0 );
+      obj.MD = MobileDevice( 0, 0, 0, 0 );
       while count <= obj.num_MD
         id_BS = randi( obj.num_BS );
         x_temp = obj.R - 2 * obj.R * rand + obj.x_BS( id_BS );
         y_temp = obj.R - 2 * obj.R * rand + obj.y_BS( id_BS );
         if inpolygon( x_temp, y_temp, obj.v_x( id_BS, : ), obj.v_y( id_BS, : ) ) == 1
-          obj.MD( count ) = MobileDevice( id_BS, x_temp, y_temp );
+          obj.MD( count ) = MobileDevice( id_BS, x_temp, y_temp, obj.speed );
           count = count + 1;
         end
       end
@@ -288,6 +309,8 @@ classdef Model < handle
       obj.count_handover = 0;
       obj.count_disconnection = 0;
       obj.noise = thermal_noise_power( obj.temperature, obj.bandwidth );
+      obj.timer = 0;
+      obj.RicianDistribution = makedist( 'Rician', 's', obj.s_fading, 'sigma',dB_2_watt( obj.sigma_fading ) );
       
       obj.render()
       
@@ -391,6 +414,35 @@ classdef Model < handle
         case 3
           obj.path_loss_model = obj.COST231;
       end
+    end
+    
+    function obj = applyFading( obj, newFadingOrNot )
+      switch( newFadingOrNot )
+        case 1
+          obj.fadingOrNot = false;
+        case 2
+          obj.fadingOrNot = true;
+      end
+    end
+    
+    function obj = setFadingS( obj, newS )
+      obj.s_fading = newS;
+    end
+    
+    function obj = setFadingDeviation( obj, newSigma )
+      obj.sigma_fading = newSigma;
+    end
+    
+    function obj = setShadowingDeviation( obj, newSigma )
+      obj.sigma_shadowing = newSigma;
+    end
+    
+    function obj = setMeasureInterval( obj, newMinterval )
+      obj.measureInterval = newMinterval;
+    end
+    
+    function obj = setMobilitySpeedMean( obj, newSpeed )
+      obj.speed = newSpeed;
     end
     
   end
